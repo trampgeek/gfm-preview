@@ -1,6 +1,6 @@
 # CODE RUNNER
 
-Version: 3.7.9 August 2020
+Version: 4.0.0 January 2021
 
 Authors: Richard Lobb, University of Canterbury, New Zealand.
          Tim Hunt, The Open University, UK
@@ -35,9 +35,13 @@ unusual question type.
   - [Per-test templates](#per-test-templates)
   - [Combinator templates](#combinator-templates)
   - [Customising templates](#customising-templates)
+- [Template debugging](#template-debugging)
 - [Using the template as a script for more advanced questions](#using-the-template-as-a-script-for-more-advanced-questions)
   - [Twig Escapers](#twig-escapers)
 - [Template parameters](#template-parameters)
+  - [Preprocessing of template parameters](#preprocessing-of-template-parameters)
+  - [The Twig TEST variable](#the-twig-test-variable)
+  - [The Twig TESTCASES variable](#the-twig-testcases-variable)
   - [The Twig QUESTION variable](#the-twig-question-variable)
   - [The Twig STUDENT variable](#the-twig-student-variable)
   - [Twig macros](#twig-macros)
@@ -494,18 +498,29 @@ CodeRunner support a wide variety of question types and can easily be
 extended to support others. A CodeRunner question type is defined by a
 *question prototype*, which specifies run time parameters like the execution
 language and sandbox and also the template that define how a test program is built from the
-question's test-cases plus the student's submission. The prototype also
+question's test-cases plus the student's submission.
+
+The prototype also
 defines whether the correctness of the student's submission is assessed by use
 of an *EqualityGrader*, a *NearEqualityGrader*, a *RegexGrader* or a
-*TemplateGrader*. The EqualityGrader expects
+*TemplateGrader*.
+
+ * The EqualityGrader expects
 the output from the test execution to exactly match the expected output
-for the testcase. The NearEqualityGrader is similar but is case insensitive
+for the testcase.
+ * The NearEqualityGrader is similar but is case insensitive
 and tolerates variations in the amount of white space (e.g. missing or extra
 blank lines, or multiple spaces where only one was expected).
-The RegexGrader expects a regular expression match
-instead. Template graders are more complicated but give the question author almost
+ * The RegexGrader takes the *Expected* output as a regular expression (which
+should not have PERL-type delimiters) and tries to find a match anywhere within
+the output. Thus for example an expected value of 'ab.*z' would match any output that contains the
+the characters 'ab' anywhere in the output and a 'z' character somewhere later.
+To force matching of the entire output, start and end the regular expression
+with '\A' and '\Z' respectively. Regular expression matching uses MULTILINE
+and DOTALL options.
+ * Template graders are more complicated but give the question author almost
 unlimited flexibility in controlling the execution, grading and result
-display; see the section *Grading with templates*.
+display; see the section [Grading with templates](#grading-with-templates).
 
 The EqualityGrader is recommended for most normal use, as it
 encourages students to get their output exactly correct; they should be able to
@@ -720,13 +735,18 @@ has a template, either imported from the question type or explicitly customised,
 which defines how the executable program is constructed from the student's
 answer, the test code and other custom code within the template itself.
 
+The template for a question is by default defined by the CodeRunner question
+type, which itself is defined by a special "prototype" question, to be explained later.
+You can inspect the template of any question by clicking the customise box in
+the question authoring form. 
+
 A question's template can be either a *per-test template* or a *combinator
 template*. The first one is the simpler; it is applied once for every test
 in the question to yield an executable program which is sent to the sandbox.
 Each such execution defines one row of the result table. Combinator templates,
 as the name implies, are able to combine multiple test cases into a single
 execution, provided there is no standard input for any of the test cases. We
-will discuss the easier per-test template first.
+will discuss the simpler per-test template first.
 
 ### Per-test templates
 
@@ -738,18 +758,19 @@ from the sandbox is then matched against the expected output for the testcase,
 where a 'match' is defined by the chosen grader: an exact match,
 a nearly exact match or a regular-expression match. There is also the possibility
 to perform grading with the the template itself using a 'template grader';
-this possibility is discussed later, in the section 'Grading with templates'.
+this possibility is discussed later, in the section
+'[Grading with templates'](#grading-with-templates).
 
 Expansion of the template is done by the
 [Twig](http://twig.sensiolabs.org/) template engine. The engine is given both
 the template to be rendered and a set of pre-defined variables that we will
-call the *Twig Context*. The default set of variables is:
+call the *Twig Context*. The default set of context variables is:
 
  * STUDENT\_ANSWER, which is the text that the student entered into the answer box.
- * TEST, which is a record containing the test-case. See below.
- * IS_PRECHECK, which has the value 1 (True) if the template is being evaluated as
+ * TEST, which is a record containing the testcase. See [The Twig TEST variable)(#the-twig-test-variable).
+ * IS\_PRECHECK, which has the value 1 (True) if the template is being evaluated asY
 a result of a student clicking the *Precheck* button or 0 (False) otherwise.
- * ANSWER_LANGUAGE, which is meaningful only for multilanguage questions, for
+ * ANSWER\_LANGUAGE, which is meaningful only for multilanguage questions, for
 which it contains the language chosen by the student from a drop-down list. See
 [Multilanguage questions](#multilanguage-questions).
  * ATTACHMENTS, which is a comma-separated list of the names of any files that
@@ -763,9 +784,8 @@ all the values defined by the template parameters field. This will be explained
 in section [Template parameters](#template-parameters).
 
 The TEST attributes most likely to be used within
-the template are TEST.testcode (the code to execute for the test), TEST.stdin
-(the standard input for the test -- not normally used within a template, but
-occasionally useful) and TEST.extra (the extra test data provided in the
+the template are TEST.testcode (the code to execute for the test),
+and TEST.extra (the extra test data provided in the
 question authoring form). The template will typically use just the TEST.testcode
 field, which is the "test" field of the testcase. It is usually
 a bit of code to be run to test the student's answer.
@@ -818,16 +838,20 @@ complete programs that gets run during a question submission.
 
 ### Combinator templates
 
-The template for a question is by default defined by the code runner question
-type, which itself is defined by a special "prototype" question, to be explained later.
-You can inspect the template of any question by clicking the customise box in
-the question authoring form. You'll also find a checkbox labelled *Is combinator*.
-If this checkbox is checked the template is a combinator template. Such templates
-take the STUDENT\_ANSWER template variable as shown above, but rather than
-taking just a single TEST variable, they take a TESTCASES variable, which is
-is a list of all the individual TEST objects.
+When customising a question you'll also find a checkbox labelled *Is combinator*.
+If this checkbox is checked the template is a *combinator template*. Such templates
+receive the same Twig Context as per-test templates except that rather than a TEST
+variable they are given a TESTCASES variable. This is
+is a list of all the individual TEST objects. A combinator template is expected
+to iterate through all the tests in a single run, separating the output
+from the different tests with a special separator string, defined within the
+question authoring form. The default separator string is 
 
-The actual template used by the built-in C function question type is not actually
+    "#<ab@17943918#@>#"
+
+on a line by itself.
+
+The template used by the built-in C function question type is not actually
 a per-test template as suggested above, but is the following combinator template.
 
     #include <stdio.h>
@@ -881,14 +905,19 @@ question if desired. On receiving the output back from the sandbox, CodeRunner
 then splits the output using the separator into three separate test outputs,
 exactly as if a per-test template had been used on each test case separately.
 
-The use of a combinator template is problematic with questions that require standard input;
+The use of a combinator template is problematic with questions that require standard input:
 if each test has its own standard input, and all tests are combined into a
-single program, what is the standard input for that program? The easiest
-resolution to this problem is simply to fall back to running each test
-separately. That is achieved by using the combinator template but feeding it
-a singleton list of testcases each time, i.e. the list [test[0]] on the first
-run, [test[1]] on the second and so on. The combinator template is then
-functioning just like a per-test template.
+single program, what is the standard input for that program? By default
+if a question has standard inputs defined for any of the tests but has a
+combinator template defined, CodeRunner simply runs each test
+separately on the sandbox. It does that by using the combinator template but feeding it
+a singleton list of testcases, i.e. the list [test[0]] on the first
+run, [test[1]] on the second and so on. In each case, the standard input is
+set to be a file containing the contents of the *Standard Input* field of
+the particular testcase being run.
+The combinator template is then
+functioning just like a per-test template but using the TESTCASES variable
+rather than a TEST variable.
 
 However, advanced combinator templates can actually manage the multiple
 runs themselves, e.g. using Python Subprocesses. To enable this, there
@@ -951,14 +980,24 @@ like
     int sqr(int n) {
         // *** Replace this line with your code
 
-If you're customising templates, or developing your own question type (see later),
-the combinator template doesn't normally offer
-sufficient additional benefit to warrant the complexity increase
-unless you have a
-large number of testcases or are using
-a slow-to-launch language like Matlab. It is recommended that you always start
-with a per-test template, and move to a combinator template only if you have
-an obvious performance issue.
+If you're a newcomer to customising templates or developing your own question type (see later),
+it is recommended that you start
+with a per-test template, and move to a combinator template only when you're
+familiar with how things work and need the performance gain offered by a 
+combinator template.
+
+## Template debugging
+
+When customising question templates or developing new question types, it is
+usually helpful to check the *Template debugging* checkbox and to uncheck
+the *Validate on save* checkbox. Save your question, then preview it. Whenever
+you click the *Check* (or *Precheck* button, if it's enabled) you'll be shown
+the actual code that is sent to the sandbox. You can then copy that into your
+favourite IDE and test it separately.
+
+If the question results in multiple submissions to the sandbox, as happens
+by default when there is standard input defined for the tests or when any
+test gives a runtime error, the submitted code for all runs will be shown.
 
 ## Using the template as a script for more advanced questions
 
@@ -1015,11 +1054,12 @@ Note that any output written to *stderr* is interpreted by CodeRunner as a
 runtime error, which aborts the test sequence, so the student sees the error
 output only on the first test case.
 
-The full `Python3_pylint` question type is much more complex than the
-above, because it includes many extra features, enabled by use of template
-parameters (see later).
+The full `python3_pylint` question type is much more complex than the
+above, because it includes many extra features, enabled by use of
+[template parameters](#template-parameters).
 
-Some other complex question types that we've used include:
+Some other complex question types that we've built using the technique 
+described above include:
 
  1. A Matlab question in which the template code (also Matlab) breaks down
     the student's code into functions, checking the length of each to make
@@ -1028,7 +1068,7 @@ Some other complex question types that we've used include:
  1. Another advanced Matlab question in which the template code, written in
     Python runs the student's Matlab code, then runs the sample answer supplied within
     the question, extracts all the floating point numbers is both, and compares
-    the numbers of equality to some given tolerance.
+    the numbers for equality to some given tolerance.
 
  1. A Python question where the student's code is actually a compiler for
     a simple language. The template code runs the student's compiler,
@@ -1049,7 +1089,7 @@ answer box from that used to run the submission in the sandbox.
 
   - the use of the QUESTION template variable, which contains all the
 attributes of the question including its question text, sample answer and
-template parameters (see below).
+[template parameters](#template-parameters).
 
 ### Twig Escapers
 
@@ -1082,23 +1122,33 @@ into the template program, to be executed as is.
 
 ## Template parameters
 
-It is sometimes necessary to make quite small changes to a template over many
-different questions. For example, you might want to use the *pylint* question
-type given above but change the maximum allowable length of a function in different
-questions. Customising the template for each such question has the disadvantage
-that your derived questions no longer inherit from the original prototype, so
-that if you wish to alter the prototype you will also need to find
-and modify all the
-derived questions, too.
+When Twig is called to render the template it is provided with a set of
+variables that we call the *Twig context*. The default Twig context for
+per-test templates is defined in the section [Per-test templates](#per-test-templates);
+the default context for combinator templates is exactly the same except that
+the `TEST` variable is replaced by a `TESTCASES` variable which is just an
+array of `TEST` objects.
 
-In such cases a better approach is to use template parameters, which can
-be defined by the question author in the "Template params" field of the question
-editing form. This field must be set to a JSON-encoded record containing
-definitions of variables that can be used by the template engine to perform
-local per-question customisation of the template. The template parameters
-are passed to the template engine as the object `QUESTION.parameters`. In
-addition, if the *Hoist template parameters* checkbox is checked (which
-is now the default behaviour) the `QUESTION.parameters` prefix can be dropped.
+The question author can enhance the Twig context by means of the *Template
+parameters* field. This must be either a JSON string or a program in some
+languages which evaluates to yield a JSON string. The latter option will be
+explained in the section [Preprocessing of template parameters](#preprocessing-of-template-parameters)
+and for now we will assume the author has entered the required JSON string
+directly, i.e. that the Preprocessor drop-down has been set to *None*.
+
+The template parameters string is a JSON object and its (key, value) attributes
+are added to the `QUESTION.parameters` field of the `QUESTION` variable in
+the Twig context. Additionally, if the *Hoist template parameters* checkbox is
+checked, each (key, value) pair is added as a separate variable to the Twig context
+at the top level.
+
+The template parameters feature is very powerful when you are defining your
+own question types, as explained in [User-defined question types](#user-defined-question-types).
+It allows you to write very general question types whose behaviour is then
+parameterised via the template parameters. This is much better than customising
+individual questions because customised questions no longer inherit templates
+from the base question type, so any changes to that base question type must
+then be replicated in all customised questions of that type.
 
 For example, suppose we wanted a more advanced version of the *python3\_pylint*
 question type that allows customisation of the pylint options via template parameters.
@@ -1159,6 +1209,46 @@ The template for such a question type might then be:
 
 If *Hoist template parameters* is checked, all `QUESTION.parameters.` prefixes
 can be dropped.
+
+
+### Preprocessing of template parameters
+
+
+
+
+### The Twig TEST variable
+
+The template variable `TEST`, which is defined in the Twig context only when
+Twig is rendering a per-test template, contains the following attributes:
+
+ * `TEST.rownum` The sequence number of this test (0, 1, 2 ...).
+ * `TEST.questionid` The ID of the question being run. Not generally useful.
+ * `TEST.testtype` The type of test, relevant only when Precheck is enabled
+for the question and is set to *Selected* so that the author has control over
+which tests get run. 0 denotes "run this test only when *Check* is clicked, 1 denotes "run this
+test only when *Precheck* is clicked" and 2 denotes "always run this test".
+ * `TEST.testcode` The code for this test.
+ * `TEST.extra` Whatever text was entered by the author into the Extra field of this test.
+ * `TEST.stdin` The standard input (as a text string) to be used when running this test. This
+isn't generally needed by the question author because CodeRunner by default copies it to
+a file and sets standard input to use that file when running the test. 
+ * `TEST.expected` The expected output when running this test.
+ * `TEST.useasexample` True (1) if the "Use as example" checkbox is checked for
+this test.
+ * `TEST.display` One of the string values "SHOW", "HIDE", "HIDE_IF_SUCCEED" or
+"HIDE_IF_FAIL". 
+ * `TEST.hiderestiffail` True (1) if the "Hide rest if fail" checkbox is checked
+for this test.
+ * `TEST.mark` How many marks to allocate to this test. Meaningful only if
+not using "All or nothing" grading.
+ * `TEST.ordering` The number entered by the question author into the *Ordering*
+field of the test.
+
+### The Twig TESTCASES variable
+
+The template variable `TESTCASES`, which is defined in the Twig context only when
+Twig is rendering a combinator template, is just a list of TEST objects, as
+defined in the previous section.
 
 ### The Twig QUESTION variable
 
